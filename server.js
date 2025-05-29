@@ -1,38 +1,74 @@
 import express from "express";
-import bodyParser from "body-parser";
-import dotenv from "dotenv";
-import fetch from "node-fetch";
-
-dotenv.config();
+import { google } from "googleapis";
 
 const app = express();
-app.use(bodyParser.json());
+app.use(express.json());
 
-const PORT = process.env.PORT || 3000;
-const SCRIPT_URL = process.env.SCRIPT_URL;
-const ACCESS_KEY = process.env.ACCESS_KEY;
+const serviceAccount = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+const spreadsheetId = process.env.SPREADSHEET_ID;
 
-app.post("/sheet", async (req, res) => {
-  const action = req.query.action;
-  const payload = req.body;
+const auth = new google.auth.GoogleAuth({
+  credentials: serviceAccount,
+  scopes: ['https://www.googleapis.com/auth/spreadsheets']
+});
+
+let sheets;
+auth.getClient().then(authClient => {
+  sheets = google.sheets({ version: 'v4', auth: authClient });
+  console.log("✅ Google Sheets client initialized");
+}).catch(err => {
+  console.error("❌ Auth init error:", err);
+});
+
+app.get("/read", async (req, res) => {
+  const range = req.query.range || 'Sheet1!A1:Z100';
 
   try {
-    const response = await fetch(`${SCRIPT_URL}?action=${action}&key=${ACCESS_KEY}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range
     });
 
-    const text = await response.text();
-    res.status(response.status).send(text);
+    res.json({ values: response.data.values || [] });
   } catch (error) {
-    console.error("Proxy Error:", error);
-    res.status(500).send("Proxy error");
+    console.error("Read error:", error.message);
+    res.status(500).json({ error: error.message });
   }
 });
 
-app.get("/health", (req, res) => res.send("Proxy is live"));
+app.post("/write", async (req, res) => {
+  const { range, values, append = false } = req.body;
 
+  if (!range || !values) {
+    return res.status(400).json({ error: "Missing 'range' or 'values'" });
+  }
+
+  try {
+    const result = append
+      ? await sheets.spreadsheets.values.append({
+          spreadsheetId,
+          range,
+          valueInputOption: "RAW",
+          insertDataOption: "INSERT_ROWS",
+          requestBody: { values }
+        })
+      : await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range,
+          valueInputOption: "RAW",
+          requestBody: { values }
+        });
+
+    res.json({ status: "success", updatedCells: result.data.updatedCells || 0 });
+  } catch (error) {
+    console.error("Write error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/health", (req, res) => res.send("✅ Server is healthy"));
+
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Proxy server running on port ${PORT}`);
+  console.log(`🚀 Server listening on port ${PORT}`);
 });
