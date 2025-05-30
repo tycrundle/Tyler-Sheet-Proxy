@@ -21,7 +21,7 @@ auth.getClient().then(authClient => {
 });
 
 app.get("/read", async (req, res) => {
-  const range = req.query.range || 'Sheet1!A1:Z100';
+  const range = req.query.range || "Sheet1!A1:Z100";
 
   try {
     const response = await sheets.spreadsheets.values.get({
