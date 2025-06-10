@@ -1,8 +1,11 @@
+// index.js
 import express from "express";
 import { google } from "googleapis";
+import syncEventsRoute from "./routes/sync-events.js"; // ✅ NEW
 
 const app = express();
 app.use(express.json());
+app.use(syncEventsRoute); // ✅ NEW
 
 // Google Sheets setup
 const serviceAccount = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
