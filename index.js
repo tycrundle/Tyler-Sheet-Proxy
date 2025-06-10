@@ -68,6 +68,26 @@ app.post("/write", async (req, res) => {
 
 app.get("/health", (req, res) => res.send("✅ Server is healthy"));
 
+// 📌 Google Calendar OAuth2 Callback
+const oauth2Client = new google.auth.OAuth2(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  process.env.GOOGLE_REDIRECT_URI
+);
+
+app.get('/oauth2callback', async (req, res) => {
+  const { code } = req.query;
+  try {
+    const { tokens } = await oauth2Client.getToken(code);
+    oauth2Client.setCredentials(tokens);
+    console.log('✅ OAuth tokens:', tokens);
+    res.send('🎉 Calendar connected! You can safely close this window.');
+  } catch (error) {
+    console.error('❌ OAuth error:', error);
+    res.status(500).send('Authorization failed.');
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Server listening on port ${PORT}`);
