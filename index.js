@@ -1,4 +1,12 @@
 // index.js
+import logNoteRoute from "./routes/log-note.js";
+import searchRoute from "./routes/search.js";
+import tagsRoute from "./routes/tags.js";
+
+app.use(logNoteRoute);
+app.use(searchRoute);
+app.use(tagsRoute);
+
 import express from "express";
 import { google } from "googleapis";
 import syncEventsRoute from "./routes/sync-events.js"; // ✅ NEW
