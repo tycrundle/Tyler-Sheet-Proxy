@@ -4,16 +4,17 @@ import { google } from "googleapis";
 const app = express();
 app.use(express.json());
 
+// -------------------- GOOGLE SHEETS SETUP --------------------
 const serviceAccount = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
 const spreadsheetId = process.env.SPREADSHEET_ID;
 
-const auth = new google.auth.GoogleAuth({
+const sheetsAuth = new google.auth.GoogleAuth({
   credentials: serviceAccount,
   scopes: ['https://www.googleapis.com/auth/spreadsheets']
 });
 
 let sheets;
-auth.getClient().then(authClient => {
+sheetsAuth.getClient().then(authClient => {
   sheets = google.sheets({ version: 'v4', auth: authClient });
   console.log("✅ Google Sheets client initialized");
 }).catch(err => {
@@ -22,13 +23,11 @@ auth.getClient().then(authClient => {
 
 app.get("/read", async (req, res) => {
   const range = req.query.range || "Sheet1!A1:Z100";
-
   try {
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
       range
     });
-
     res.json({ values: response.data.values || [] });
   } catch (error) {
     console.error("Read error:", error.message);
@@ -38,7 +37,6 @@ app.get("/read", async (req, res) => {
 
 app.post("/write", async (req, res) => {
   const { range, values, append = false } = req.body;
-
   if (!range || !values) {
     return res.status(400).json({ error: "Missing 'range' or 'values'" });
   }
@@ -66,28 +64,46 @@ app.post("/write", async (req, res) => {
   }
 });
 
+// -------------------- HEALTH CHECK --------------------
 app.get("/health", (req, res) => res.send("✅ Server is healthy"));
 
-// 📌 Google Calendar OAuth2 Callback
-const oauth2Client = new google.auth.OAuth2(
-  process.env.GOOGLE_CLIENT_ID,
-  process.env.GOOGLE_CLIENT_SECRET,
-  process.env.GOOGLE_REDIRECT_URI
-);
+// -------------------- GOOGLE CALENDAR OAUTH FLOW --------------------
+app.get("/authurl", (req, res) => {
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    process.env.GOOGLE_REDIRECT_URI
+  );
 
-app.get('/oauth2callback', async (req, res) => {
+  const authUrl = oauth2Client.generateAuthUrl({
+    access_type: "offline",
+    prompt: "consent",
+    scope: ["https://www.googleapis.com/auth/calendar"]
+  });
+
+  res.send(`<h2>Authorize Google Calendar Access</h2><a href="${authUrl}" target="_blank">Click here to connect your Google Calendar</a>`);
+});
+
+app.get("/oauth2callback", async (req, res) => {
   const { code } = req.query;
+
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    process.env.GOOGLE_REDIRECT_URI
+  );
+
   try {
     const { tokens } = await oauth2Client.getToken(code);
-    oauth2Client.setCredentials(tokens);
-    console.log('✅ OAuth tokens:', tokens);
-    res.send('🎉 Calendar connected! You can safely close this window.');
+    console.log("✅ Calendar token:", tokens);
+    res.send("🎉 Authorization successful. You can close this window.");
   } catch (error) {
-    console.error('❌ OAuth error:', error);
-    res.status(500).send('Authorization failed.');
+    console.error("❌ Calendar OAuth error:", error.message);
+    res.status(500).send("Authorization failed.");
   }
 });
 
+// -------------------- START SERVER --------------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Server listening on port ${PORT}`);
