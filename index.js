@@ -4,7 +4,7 @@ import { google } from "googleapis";
 const app = express();
 app.use(express.json());
 
-// Google Sheets setup
+// -------------------- GOOGLE SHEETS SETUP --------------------
 const serviceAccount = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
 const spreadsheetId = process.env.SPREADSHEET_ID;
 
@@ -21,7 +21,22 @@ sheetsAuth.getClient().then(authClient => {
   console.error("❌ Sheets auth error:", err);
 });
 
-// Sheets read
+// -------------------- GOOGLE CALENDAR SETUP --------------------
+const oauth2Client = new google.auth.OAuth2(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  process.env.GOOGLE_REDIRECT_URI
+);
+
+// OPTIONAL: load refresh token from environment
+if (process.env.GOOGLE_REFRESH_TOKEN) {
+  oauth2Client.setCredentials({
+    refresh_token: process.env.GOOGLE_REFRESH_TOKEN
+  });
+  console.log("🔁 Refresh token loaded for Calendar");
+}
+
+// -------------------- SHEETS API --------------------
 app.get("/read", async (req, res) => {
   const range = req.query.range || "Sheet1!A1:Z100";
   try {
@@ -36,12 +51,12 @@ app.get("/read", async (req, res) => {
   }
 });
 
-// Sheets write
 app.post("/write", async (req, res) => {
   const { range, values, append = false } = req.body;
   if (!range || !values) {
     return res.status(400).json({ error: "Missing 'range' or 'values'" });
   }
+
   try {
     const result = append
       ? await sheets.spreadsheets.values.append({
@@ -57,6 +72,7 @@ app.post("/write", async (req, res) => {
           valueInputOption: "RAW",
           requestBody: { values }
         });
+
     res.json({ status: "success", updatedCells: result.data.updatedCells || 0 });
   } catch (error) {
     console.error("Write error:", error.message);
@@ -64,40 +80,41 @@ app.post("/write", async (req, res) => {
   }
 });
 
-// Google Calendar OAuth setup
-const oauth2Client = new google.auth.OAuth2(
-  process.env.GOOGLE_CLIENT_ID,
-  process.env.GOOGLE_CLIENT_SECRET,
-  process.env.GOOGLE_REDIRECT_URI
-);
-
-// Generate calendar auth URL
+// -------------------- CALENDAR AUTH FLOW --------------------
 app.get("/authurl", (req, res) => {
   const authUrl = oauth2Client.generateAuthUrl({
     access_type: "offline",
     prompt: "consent",
     scope: ["https://www.googleapis.com/auth/calendar"]
   });
-  res.send(`<a href="${authUrl}" target="_blank">Click here to authorize access to your calendar</a>`);
+
+  res.send(`<h2>Authorize Google Calendar Access</h2><a href="${authUrl}" target="_blank">Click here to connect your calendar</a>`);
 });
 
-// Handle OAuth callback
 app.get("/oauth2callback", async (req, res) => {
   const { code } = req.query;
   try {
     const { tokens } = await oauth2Client.getToken(code);
     oauth2Client.setCredentials(tokens);
-    console.log("🎉 Calendar access token received:", tokens);
-    res.send("🎉 Authorization successful! You can close this tab.");
+    console.log("🎉 Calendar tokens:", tokens);
+
+    // OUTPUT the refresh token for permanent use
+    if (tokens.refresh_token) {
+      console.log("\n🛡️  SAVE THIS REFRESH TOKEN to .env:");
+      console.log(`GOOGLE_REFRESH_TOKEN=${tokens.refresh_token}`);
+    }
+
+    res.send("🎉 Authorization complete. Check your server logs for the token.");
   } catch (error) {
-    console.error("OAuth error:", error);
+    console.error("❌ OAuth error:", error);
     res.status(500).send("Authorization failed.");
   }
 });
 
-// Health check
+// -------------------- HEALTH CHECK --------------------
 app.get("/health", (req, res) => res.send("✅ Server is healthy"));
 
+// -------------------- START SERVER --------------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Server listening on port ${PORT}`);
