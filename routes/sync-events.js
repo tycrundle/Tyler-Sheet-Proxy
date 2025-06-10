@@ -29,11 +29,12 @@ const HEADERS = [
 ];
 
 // Utilities
-const mapRowsToObjects = (rows) => rows.map(row => {
+const mapRowsToObjects = (rows) => rows.map((row, idx) => {
   const rowObj = {};
   HEADERS.forEach((key, i) => {
     rowObj[key] = row[i] || "";
   });
+  rowObj._rowIndex = idx + 2; // track original row number for logging
   return rowObj;
 });
 
@@ -52,7 +53,24 @@ router.get("/sync-events", async (req, res) => {
     });
 
     const rows = data.values || [];
-    const eventsToSync = mapRowsToObjects(rows).filter(row => row.Synced !== "TRUE" && row.Status !== "canceled");
+    if (!rows.length) {
+      console.log("🟡 No data rows found in 'New Events' tab.");
+      return res.json({ status: "success", synced: 0, skipped: 0 });
+    }
+
+    const rowObjects = mapRowsToObjects(rows);
+    const skipped = [];
+    const eventsToSync = rowObjects.filter(row => {
+      if (!row.Summary || !row.Start || !row.End || row.Status === "canceled") {
+        skipped.push({ row: row._rowIndex, reason: "Missing required fields or status=canceled" });
+        return false;
+      }
+      if (row.Synced === "TRUE") {
+        skipped.push({ row: row._rowIndex, reason: "Already synced" });
+        return false;
+      }
+      return true;
+    });
 
     const updatedRows = [];
     for (let i = 0; i < eventsToSync.length; i++) {
@@ -92,7 +110,8 @@ router.get("/sync-events", async (req, res) => {
         updatedRows.push(row);
 
       } catch (eventErr) {
-        console.error("Event sync failed for row:", row, eventErr.message);
+        console.error(`❌ Event sync failed (row ${row._rowIndex}):`, eventErr.message);
+        skipped.push({ row: row._rowIndex, reason: `Event insert/update error: ${eventErr.message}` });
       }
     }
 
@@ -107,7 +126,8 @@ router.get("/sync-events", async (req, res) => {
       });
     }
 
-    res.json({ status: "success", synced: updatedRows.length });
+    console.log("✅ Sync completed.", { synced: updatedRows.length, skipped });
+    res.json({ status: "success", synced: updatedRows.length, skipped });
   } catch (err) {
     console.error("/sync-events error:", err);
     res.status(500).json({ error: err.message });
